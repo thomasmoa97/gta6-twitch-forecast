@@ -149,6 +149,22 @@ def fit_regression(profs):
     return params
 
 
+def persistence_rows(p1):
+    """The house baseline: every hour stays at hour 1's print, spread widening
+    like a random walk in log space (sigma 0.15 per root-hour). Used only when
+    no comparable profile is usable, so the entry still writes a valid
+    forecast instead of crashing on a degenerate case."""
+    rows = []
+    for h in range(2, 25):
+        q = [round2(p1 * math.exp(z * 0.15 * math.sqrt(h - 1))) for z in Z]
+        q = [max(0.01, min(MAX_VIEWERS, v)) for v in q]
+        for i in range(1, 5):
+            if q[i] < q[i - 1]:
+                q[i] = q[i - 1]
+        rows.append({"hour": h, "q": q})
+    return {"hours": rows}
+
+
 def forecast_case(case, name):
     if case["levels"] != LEVELS:
         raise ValueError(f"{name} asks for levels {case['levels']}, not {LEVELS}")
@@ -168,6 +184,9 @@ def forecast_case(case, name):
         profs.append((comp.get("name", ""), vals[0], vals, tier, pure))
     clean = [t for t in profs if t[3] == "comparable"]
     pure = [t for t in profs if t[3] == "comparable" and t[4]]
+    if not profs:
+        # Degenerate case (no usable comparable at all): stay valid.
+        return persistence_rows(p1)
     if not clean:
         clean = profs
     if not pure:
@@ -184,7 +203,7 @@ def forecast_case(case, name):
         med_reg = a + b * lp
         near = sorted(knn_pool, key=lambda t: (abs(math.log(t[1]) - lp), t[0]))[:KNN_K]
         logs = [math.log(vals[h - 1] / vals[0]) for _, _, vals in near]
-        med_knn = median(logs)
+        med_knn = median(logs) if logs else med_reg
         med = 0.5 * (med_reg + med_knn)
         qs = [quantile(resid, tau) for tau in LEVELS]
         r50 = quantile(resid, 0.5)
